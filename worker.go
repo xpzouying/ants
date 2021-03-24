@@ -32,6 +32,7 @@ import (
 // performs function calls.
 type goWorker struct {
 	// pool who owns this worker.
+	// 因为worker运行完后，需要放回去pool的workerCache，所以需要将pool传进来。
 	pool *Pool
 
 	// task is a job should be done.
@@ -48,7 +49,7 @@ func (w *goWorker) run() {
 	go func() {
 		defer func() {
 			w.pool.decRunning()
-			w.pool.workerCache.Put(w)
+			w.pool.workerCache.Put(w) // 放回去cache。
 			if p := recover(); p != nil {
 				if ph := w.pool.options.PanicHandler; ph != nil {
 					ph(p)
@@ -62,10 +63,13 @@ func (w *goWorker) run() {
 		}()
 
 		for f := range w.task {
+			// 如果f的话，表示过期了，那么该goroutine直接退出。
 			if f == nil {
 				return
 			}
+
 			f()
+
 			if ok := w.pool.revertWorker(w); !ok {
 				return
 			}

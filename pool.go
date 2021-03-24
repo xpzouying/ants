@@ -52,6 +52,7 @@ type Pool struct {
 	// cond for waiting to get a idle worker.
 	cond *sync.Cond
 
+	// worker都是用sync.Pool保存。而不是后台一直在运行goroutine。
 	// workerCache speeds up the obtainment of the an usable worker in function:retrieveWorker.
 	workerCache sync.Pool
 
@@ -94,6 +95,9 @@ func (p *Pool) purgePeriodically() {
 }
 
 // NewPool generates an instance of ants pool.
+//
+// 这里让我比较意外的是，worker并非是一直使用sync.Pool运行在进程中。而是使用sync.Pool来创建worker。
+// 这里面会启动一个goroutine来做定时过期清理的工作。
 func NewPool(size int, options ...Option) (*Pool, error) {
 	opts := loadOptions(options...)
 
@@ -142,6 +146,10 @@ func NewPool(size int, options ...Option) (*Pool, error) {
 // ---------------------------------------------------------------------------
 
 // Submit submits a task to this pool.
+//
+// 往Pool里面发送一个task，实际上的操作是：
+// 1. 从Pool里面获取一个可用的worker；
+// 2. 给这个worker提交一个任务；
 func (p *Pool) Submit(task func()) error {
 	if p.IsClosed() {
 		return ErrPoolClosed
@@ -150,6 +158,10 @@ func (p *Pool) Submit(task func()) error {
 	if w = p.retrieveWorker(); w == nil {
 		return ErrPoolOverload
 	}
+
+	// 需要注意的是，这个task其实是个函数。
+	// 因为是协程对于任务的调度。
+	// 提交task实际长是从channel里面扔进去。这里是不是有个select带个超时会更好？
 	w.task <- task
 	return nil
 }
@@ -213,18 +225,24 @@ func (p *Pool) decRunning() {
 }
 
 // retrieveWorker returns a available worker to run the tasks.
+// 获取一个worker去运行task
 func (p *Pool) retrieveWorker() (w *goWorker) {
 	spawnWorker := func() {
+		// 从w中获取，然后运行。
 		w = p.workerCache.Get().(*goWorker)
 		w.run()
 	}
 
 	p.lock.Lock()
 
+	// 先从队列中获取。比如如果workers是一个slice形式的workers，那么从最后一个位置上面获取。
 	w = p.workers.detach()
+
 	if w != nil {
 		p.lock.Unlock()
 	} else if capacity := p.Cap(); capacity == -1 {
+		// 如果没有获取到，并且pool的capacity是-1，表示无限大。
+		// 则，生成一个新的goWorker。
 		p.lock.Unlock()
 		spawnWorker()
 	} else if p.Running() < capacity {
@@ -263,6 +281,8 @@ func (p *Pool) retrieveWorker() (w *goWorker) {
 
 // revertWorker puts a worker back into free pool, recycling the goroutines.
 func (p *Pool) revertWorker(worker *goWorker) bool {
+	// 如果 pool里面运行的 goroutine已经比容量更多了。
+	// 或者pool退出了。
 	if capacity := p.Cap(); (capacity > 0 && p.Running() > capacity) || p.IsClosed() {
 		return false
 	}

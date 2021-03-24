@@ -34,6 +34,7 @@ func (wq *workerStack) detach() *goWorker {
 		return nil
 	}
 
+	// 从最后一个位置获取
 	w := wq.items[l-1]
 	wq.items[l-1] = nil // avoid memory leaks
 	wq.items = wq.items[:l-1]

@@ -34,6 +34,7 @@ import (
 var sum int32
 
 func myFunc(i interface{}) {
+	// 请求参数以interface{}类型传入，然后在里面进行强制转换。
 	n := i.(int32)
 	atomic.AddInt32(&sum, n)
 	fmt.Printf("run with %d\n", n)
@@ -45,11 +46,13 @@ func demoFunc() {
 }
 
 func main() {
+	// ants 默认有个pool大小
 	defer ants.Release()
 
 	runTimes := 1000
 
 	// Use the common pool.
+	// 一般使用这种方式
 	var wg sync.WaitGroup
 	syncCalculateSum := func() {
 		demoFunc()
@@ -63,6 +66,7 @@ func main() {
 	fmt.Printf("running goroutines: %d\n", ants.Running())
 	fmt.Printf("finish all tasks.\n")
 
+	// 批量跑任务，可以考虑用这个形式。
 	// Use the pool with a method,
 	// set 10 to the capacity of goroutine pool and 1 second for expired duration.
 	p, _ := ants.NewPoolWithFunc(10, func(i interface{}) {
